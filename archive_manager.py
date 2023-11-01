@@ -85,7 +85,6 @@ def delete_old_files(cutoff_duration):
                     if args.s3_bucket:
                         # Preserve the directory structure on S3
                         local_file_path = os.path.normpath(file_path)
-                        s3_object_key = os.path.relpath(local_file_path, abs_directory_path)
                         if args.restore_from_s3:
                             if args.verbose:
                                 print("Downloading: {} (Size: {}, Age: {})".format(file_path, format_size(file_size, args.human_readable), format_seconds(age_seconds, args.human_readable)))
