@@ -7,6 +7,9 @@ import datetime
 import re
 import fnmatch
 
+import boto3
+import dateutil
+
 
 def parse_duration_string(duration_string):
     total_seconds = 0
@@ -61,6 +64,7 @@ def format_seconds(seconds, human_readable=True):
         return str(seconds) + ' seconds'
 
 
+
 def delete_old_files(cutoff_duration):
     cutoff_date = datetime.datetime.now() - datetime.timedelta(seconds=cutoff_duration)
     files_matched = 0
@@ -82,18 +86,13 @@ def delete_old_files(cutoff_duration):
                     file_size = os.path.getsize(file_path)
                     total_size_deleted += file_size  # Add the size of deleted file to the total
                     age_seconds = (datetime.datetime.now() - modified_date).total_seconds()
-                    if args.s3_bucket:
+                    if args.s3_bucket and args.backup_to_s3:
                         # Preserve the directory structure on S3
                         local_file_path = os.path.normpath(file_path)
-                        if args.restore_from_s3:
-                            if args.verbose:
-                                print("Downloading: {} (Size: {}, Age: {})".format(file_path, format_size(file_size, args.human_readable), format_seconds(age_seconds, args.human_readable)))
-                            download_from_s3(args.s3_bucket, local_file_path, local_file_path, verbose=args.verbose)
-                        elif args.backup_to_s3:
-                            if args.verbose:
-                                print("Uploading: {} (Size: {}, Age: {})".format(file_path, format_size(file_size, args.human_readable), format_seconds(age_seconds, args.human_readable)))
-                            upload_to_s3(local_file_path, args.s3_bucket, local_file_path, verbose=args.verbose)
-                    if args.destroy and not args.restore_from_s3:
+                        if args.verbose:
+                            print("Uploading: {} (Size: {}, Age: {})".format(file_path, format_size(file_size, args.human_readable), format_seconds(age_seconds, args.human_readable)))
+                        upload_to_s3(local_file_path, args.s3_bucket, local_file_path, verbose=args.verbose)
+                    if args.destroy:
                         os.remove(file_path)
                         files_deleted += 1
                         if args.verbose:
@@ -106,7 +105,74 @@ def delete_old_files(cutoff_duration):
             sys.stdout.write("\rFiles matched: {} - Files deleted: {} - Directories scanned: {}".format(files_matched, files_deleted, directories_scanned))
             sys.stdout.flush()
 
+        if not args.recursive:
+            break
+
     return files_matched, files_deleted, directories_scanned, total_size_deleted  # Return the total size of deleted files
+
+
+def restore_files_from_s3(bucket_name, prefix, restore_folder):
+    s3 = boto3.client('s3')
+
+    # remove Linux path characters from prefix
+    # NOTE: This will need to be changed if running on Windows
+    _prefix = prefix.lstrip('.')
+    _prefix = _prefix.lstrip('/')
+
+    # List objects in the specified bucket and prefix
+    response = s3.list_objects_v2(Bucket=bucket_name, Prefix=_prefix)
+
+    # Iterate through the objects and restore them
+    for obj in response.get('Contents', []):
+        s3_key = obj['Key']
+        rel_local_file_path = s3_key.replace(_prefix, '').lstrip('/')
+        local_file_path = os.path.join(restore_folder, rel_local_file_path)
+
+        # Download the file from S3 to the local restore folder
+        s3.download_file(bucket_name, s3_key, local_file_path)
+
+        # Get the original Last Modified timestamp from the S3 object's user metadata
+        response = s3.head_object(Bucket=bucket_name, Key=s3_key)
+        original_last_modified = response['Metadata'].get('last-modified')
+
+        if original_last_modified:
+            # Convert the original Last Modified timestamp to a timestamp (float) value
+            original_last_modified_timestamp = datetime.datetime.strptime(original_last_modified,
+                                                                          '%Y-%m-%dT%H:%M:%SZ').timestamp()
+
+            # Set the local file's Last Modified timestamp to the original Last Modified timestamp
+            os.utime(local_file_path, (original_last_modified_timestamp, original_last_modified_timestamp))
+
+        print(f"Restored file: {s3_key} to {local_file_path} with original LastModified: {original_last_modified}")
+
+
+def upload_to_s3(local_file_path, s3_bucket_name, s3_object_key, verbose=False):
+    try:
+        # Get the original LastModified timestamp of the local file
+        original_last_modified_timestamp = os.path.getmtime(local_file_path)
+
+        # Convert the LastModified timestamp to a formatted string
+        original_last_modified = datetime.datetime.fromtimestamp(original_last_modified_timestamp).strftime(
+            '%Y-%m-%dT%H:%M:%SZ')
+
+        # Create an S3 client
+        s3_client = boto3.client('s3')
+
+        # Upload the file to S3 and set the original LastModified in user metadata
+        s3_client.upload_file(local_file_path, s3_bucket_name, s3_object_key,
+                              ExtraArgs={'Metadata': {'last-modified': original_last_modified}})
+
+        # Set the user metadata for the uploaded object
+        s3_client.put_object(Bucket=s3_bucket_name, Key=s3_object_key,
+                             Metadata={'last-modified': original_last_modified})
+
+        if verbose:
+            msg = "Uploaded '{}' to S3 bucket '{}' with key '{}' and original LastModified: {}"
+            print(msg.format(local_file_path, s3_bucket_name, s3_object_key, original_last_modified))
+
+    except Exception as e:
+        print("Error uploading '{}' to S3: {}".format(local_file_path, str(e)))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Delete files older than a specified duration in the given directory matching a glob pattern.")
@@ -125,14 +191,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     cutoff_duration = parse_duration_string(args.cutoff_duration)
+    if args.destroy and args.restore_from_s3:
+        answer = input("Are you sure you want to destroy files and restore from S3 at the same time? (y/N): ")
+        if answer.lower() == 'n':
+            print("Aborting...")
+            exit()
     if args.restore_from_s3 or args.backup_to_s3:
         # import here so user doesn't need boto3 installed if they don't use S3
-        from s3 import upload_to_s3, download_from_s3
         if not args.s3_bucket:
-            print("Error: S3 bucket name is required for restoration. Use the '--s3-bucket' argument.")
+            raise ValueError("Error: S3 bucket name is required for restoration. Use the '--s3-bucket' argument.")
     if not os.path.exists(args.directory):
-        print("Error: The directory '{}' does not exist.".format(args.directory))
-    else:
+        raise ValueError("Error: The directory '{}' does not exist.".format(args.directory))
+    elif not args.restore_from_s3:
         abs_directory_path = os.path.normpath(os.path.abspath(args.directory))
         print("Scanning {} for files matching the pattern '{}'...".format(abs_directory_path, args.glob_pattern))
         files_matched, num_deleted_files, directories_scanned, total_size_deleted = delete_old_files(cutoff_duration)
@@ -142,3 +212,5 @@ if __name__ == "__main__":
             print("Deleted {} files, total size: {}.".format(num_deleted_files, format_size(total_size_deleted, args.human_readable)))
         elif args.verbose and files_matched > num_deleted_files:
             print("Use --destroy to delete {} matched files, total size: {}.".format(files_matched - num_deleted_files, format_size(total_size_deleted, args.human_readable)))
+    elif args.restore_from_s3:
+        restore_files_from_s3(args.s3_bucket, args.directory, args.directory)
