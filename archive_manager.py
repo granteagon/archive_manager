@@ -4,7 +4,6 @@
 # TODO: Add standard linux help with -h and --help and section for each argument
 # TODO: Write tests for each method
 # TODO: Does/Should time argument have any effect on restore?
-# TODO: Add file size to matched files output
 # TODO: Come up with a better name for this script
 # TODO: Autopep8
 # TODO: Python package
@@ -121,7 +120,7 @@ def delete_old_files(cutoff_duration):
                     elif args.verbose:
                         print("Matched: {} (Size: {}, Age: {})".format(file_path, format_size(file_size, args.human_readable), format_seconds(age_seconds, args.human_readable)))
 
-        sys.stdout.write("\rFiles matched: {} - Files deleted: {} - Directories scanned: {}".format(files_matched, files_deleted, directories_scanned))
+        sys.stdout.write("\rFiles matched: {} - Files deleted: {} - Directories scanned: {} totaling {}".format(files_matched, files_deleted, directories_scanned, format_size(total_size_deleted, args.human_readable)))
         sys.stdout.flush()
 
         if not args.recursive:
