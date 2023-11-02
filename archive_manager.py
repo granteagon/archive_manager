@@ -107,10 +107,8 @@ def delete_old_files(cutoff_duration):
                     elif args.verbose:
                         print("Matched: {} (Size: {}, Age: {})".format(file_path, format_size(file_size, args.human_readable), format_seconds(age_seconds, args.human_readable)))
 
-        # Print progress report if verbose mode is not enabled
-        if not args.verbose:
-            sys.stdout.write("\rFiles matched: {} - Files deleted: {} - Directories scanned: {}".format(files_matched, files_deleted, directories_scanned))
-            sys.stdout.flush()
+        sys.stdout.write("\rFiles matched: {} - Files deleted: {} - Directories scanned: {}".format(files_matched, files_deleted, directories_scanned))
+        sys.stdout.flush()
 
         if not args.recursive:
             break
