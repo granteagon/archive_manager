@@ -1,5 +1,15 @@
 #!/usr/bin/python3
 
+# TODO: Refactor arguments into a class that can be used to validate arguments
+# TODO: Add standard linux help with -h and --help and section for each argument
+# TODO: Write tests for each method
+# TODO: Does/Should time argument have any effect on restore?
+# TODO: Add file size to matched files output
+# TODO: Come up with a better name for this script
+# TODO: Autopep8
+# TODO: Python package
+# TODO: Tkinter GUI?
+
 import os
 import sys
 import argparse
