@@ -6,9 +6,8 @@ import argparse
 import datetime
 import re
 import fnmatch
-
+import glob
 import boto3
-import dateutil
 
 
 def parse_duration_string(duration_string):
@@ -63,7 +62,12 @@ def format_seconds(seconds, human_readable=True):
     else:
         return str(seconds) + ' seconds'
 
-
+def matches_regex(file_path, regex_pattern):
+    try:
+        return re.search(regex_pattern, file_path)
+    except re.error:
+        print("Error: Invalid regex pattern.")
+        sys.exit(1)
 
 def delete_old_files(cutoff_duration):
     cutoff_date = datetime.datetime.now() - datetime.timedelta(seconds=cutoff_duration)
@@ -71,13 +75,17 @@ def delete_old_files(cutoff_duration):
     files_deleted = 0
     total_size_deleted = 0  # Variable to keep track of total size of deleted files
     directories_scanned = 0
+    if args.regex_pattern:
+        regex_pattern = re.compile(args.regex_pattern)
+    else:
+        regex_pattern = None
 
     for root, dirs, files in os.walk(args.directory):
         # Increment directories count for each unique directory visited
         directories_scanned += 1
 
         for file_name in files:
-            if fnmatch.fnmatch(file_name, args.glob_pattern) and not os.path.islink(os.path.join(root, file_name)):
+            if (not args.regex_pattern or matches_regex(os.path.join(root, file_name), regex_pattern)) and fnmatch.fnmatch(file_name, args.glob_pattern) and not os.path.islink(os.path.join(root, file_name)):
                 file_path = os.path.join(root, file_name)
                 file_modified_time = os.path.getmtime(file_path)
                 modified_date = datetime.datetime.fromtimestamp(file_modified_time)
@@ -187,6 +195,7 @@ if __name__ == "__main__":
     parser.add_argument("--restore-from-s3", action="store_true", help="Restore files from S3.")
     parser.add_argument("--backup-to-s3", action="store_true", help="Backup files to S3. If destroying files, they will be backed up before deletion.")
     parser.add_argument("--pretend", action="store_true", help="Pretend to delete or move files. This is the default behavior if --destroy is not specified.")
+    parser.add_argument("-R", "--regex-pattern", help="Filter matches using a regex pattern.")
 
     args = parser.parse_args()
 
@@ -206,8 +215,11 @@ if __name__ == "__main__":
         abs_directory_path = os.path.normpath(os.path.abspath(args.directory))
         print("Scanning {} for files matching the pattern '{}'...".format(abs_directory_path, args.glob_pattern))
         files_matched, num_deleted_files, directories_scanned, total_size_deleted = delete_old_files(cutoff_duration)
-        print("\nFound {} files matching '{}' in {} for a total size of {}".format(files_matched, args.glob_pattern, directories_scanned, format_size(total_size_deleted, args.human_readable)))
-
+        match_msg = "\nFound {} files matching '{}'".format(files_matched, args.glob_pattern)
+        if args.regex_pattern:
+            match_msg += " and regex pattern '{}'".format(args.regex_pattern)
+        match_msg += " in {} directories with a total size of {}".format(directories_scanned, format_size(total_size_deleted, args.human_readable))
+        print(match_msg)
         if args.destroy:
             print("Deleted {} files, total size: {}.".format(num_deleted_files, format_size(total_size_deleted, args.human_readable)))
         elif args.verbose and files_matched > num_deleted_files:
