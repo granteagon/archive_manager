@@ -6,7 +6,6 @@ import argparse
 import datetime
 import re
 import fnmatch
-import glob
 import boto3
 
 
