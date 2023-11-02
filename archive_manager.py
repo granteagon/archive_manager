@@ -82,6 +82,8 @@ def delete_old_files(cutoff_duration):
     for root, dirs, files in os.walk(args.directory):
         # Increment directories count for each unique directory visited
         directories_scanned += 1
+        if args.very_verbose:
+            print("Checking folder: '{}'".format(root))
 
         for file_name in files:
             if (not args.regex_pattern or matches_regex(os.path.join(root, file_name), regex_pattern)) and fnmatch.fnmatch(file_name, args.glob_pattern) and not os.path.islink(os.path.join(root, file_name)):
@@ -193,6 +195,8 @@ if __name__ == "__main__":
     parser.add_argument("--backup-to-s3", action="store_true", help="Backup files to S3. If destroying files, they will be backed up before deletion.")
     parser.add_argument("--pretend", action="store_true", help="Pretend to delete or move files. This is the default behavior if --destroy is not specified.")
     parser.add_argument("-R", "--regex-pattern", help="Filter matches using a regex pattern.")
+    parser.add_argument("-V", "--very-verbose", action="store_true",
+                        help="Print very detailed information including each folder being checked.")
 
     args = parser.parse_args()
 
