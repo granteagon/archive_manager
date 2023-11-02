@@ -96,8 +96,11 @@ def delete_old_files(cutoff_duration):
             print("Checking folder: '{}'".format(root))
 
         for file_name in files:
-            if (not args.regex_pattern or matches_regex(os.path.join(root, file_name), regex_pattern)) and fnmatch.fnmatch(file_name, args.glob_pattern) and not os.path.islink(os.path.join(root, file_name)):
+            if fnmatch.fnmatch(file_name, args.glob_pattern) and not os.path.islink(os.path.join(root, file_name)):
                 file_path = os.path.join(root, file_name)
+                local_file_path = os.path.normpath(file_path)
+                if args.regex_pattern and not matches_regex(local_file_path, regex_pattern):
+                    continue
                 file_modified_time = os.path.getmtime(file_path)
                 modified_date = datetime.datetime.fromtimestamp(file_modified_time)
                 if modified_date < cutoff_date:
@@ -107,7 +110,6 @@ def delete_old_files(cutoff_duration):
                     age_seconds = (datetime.datetime.now() - modified_date).total_seconds()
                     if args.s3_bucket and args.backup_to_s3:
                         # Preserve the directory structure on S3
-                        local_file_path = os.path.normpath(file_path)
                         if args.verbose:
                             print("Uploading: {} (Size: {}, Age: {})".format(file_path, format_size(file_size, args.human_readable), format_seconds(age_seconds, args.human_readable)))
                         upload_to_s3(local_file_path, args.s3_bucket, local_file_path, verbose=args.verbose)
