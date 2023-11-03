@@ -7,14 +7,14 @@
 # TODO: Come up with a better name for this script
 # TODO: Autopep8
 # TODO: Python package
-# TODO: Tkinter GUI?
 
-import os
-import sys
 import argparse
 import datetime
-import re
 import fnmatch
+import os
+import re
+import sys
+
 import boto3
 
 
@@ -70,12 +70,14 @@ def format_seconds(seconds, human_readable=True):
     else:
         return str(seconds) + ' seconds'
 
+
 def matches_regex(file_path, regex_pattern):
     try:
         return re.search(regex_pattern, file_path)
     except re.error:
         print("Error: Invalid regex pattern.")
         sys.exit(1)
+
 
 def delete_old_files(cutoff_duration):
     cutoff_date = datetime.datetime.now() - datetime.timedelta(seconds=cutoff_duration)
@@ -110,17 +112,32 @@ def delete_old_files(cutoff_duration):
                     if args.s3_bucket and args.backup_to_s3:
                         # Preserve the directory structure on S3
                         if args.verbose:
-                            print("Uploading: {} (Size: {}, Age: {})".format(file_path, format_size(file_size, args.human_readable), format_seconds(age_seconds, args.human_readable)))
+                            print("Uploading: {} (Size: {}, Age: {})".format(file_path, format_size(file_size,
+                                                                                                    args.human_readable),
+                                                                             format_seconds(age_seconds,
+                                                                                            args.human_readable)))
                         upload_to_s3(local_file_path, args.s3_bucket, local_file_path, verbose=args.verbose)
                     if args.destroy:
                         os.remove(file_path)
                         files_deleted += 1
                         if args.verbose:
-                            print("Deleted: {} (Size: {}, Age: {})".format(file_path, format_size(file_size, args.human_readable), format_seconds(age_seconds, args.human_readable)))
+                            print("Deleted: {} (Size: {}, Age: {})".format(file_path,
+                                                                           format_size(file_size, args.human_readable),
+                                                                           format_seconds(age_seconds,
+                                                                                          args.human_readable)))
                     elif args.verbose:
-                        print("Matched: {} (Size: {}, Age: {})".format(file_path, format_size(file_size, args.human_readable), format_seconds(age_seconds, args.human_readable)))
+                        print("Matched: {} (Size: {}, Age: {})".format(file_path,
+                                                                       format_size(file_size, args.human_readable),
+                                                                       format_seconds(age_seconds,
+                                                                                      args.human_readable)))
 
-        sys.stdout.write("\rFiles matched: {} - Files deleted: {} - Directories scanned: {} totaling {}".format(files_matched, files_deleted, directories_scanned, format_size(total_size_deleted, args.human_readable)))
+        sys.stdout.write(
+            "\rFiles matched: {} - Files deleted: {} - Directories scanned: {} totaling {}".format(files_matched,
+                                                                                                   files_deleted,
+                                                                                                   directories_scanned,
+                                                                                                   format_size(
+                                                                                                       total_size_deleted,
+                                                                                                       args.human_readable)))
         sys.stdout.flush()
 
         if not args.recursive:
@@ -193,18 +210,26 @@ def upload_to_s3(local_file_path, s3_bucket_name, s3_object_key, verbose=False):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Delete files older than a specified duration in the given directory matching a glob pattern.")
+    parser = argparse.ArgumentParser(
+        description="Delete files older than a specified duration in the given directory matching a glob pattern.")
     parser.add_argument("directory", help="Path to the directory to search for files.")
     parser.add_argument("glob_pattern", help="Glob pattern to match files (e.g., '*.txt').")
-    parser.add_argument("cutoff_duration", help="Time duration string specifying the cutoff date (e.g., '1Y3M' for 1 year and 3 months).")
-    parser.add_argument("-r", "--recursive", action="store_true", help="Recursively search for files in sub-directories.")
-    parser.add_argument("--destroy", action="store_true", help="Actually delete files. Without this flag, it will only pretend to delete.")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Print detailed information about matched or deleted files.")
-    parser.add_argument("-H", "--human-readable", action="store_true", help="Print sizes and ages in human-readable format.")
+    parser.add_argument("cutoff_duration",
+                        help="Time duration string specifying the cutoff date (e.g., '1Y3M' for 1 year and 3 months).")
+    parser.add_argument("-r", "--recursive", action="store_true",
+                        help="Recursively search for files in sub-directories.")
+    parser.add_argument("--destroy", action="store_true",
+                        help="Actually delete files. Without this flag, it will only pretend to delete.")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Print detailed information about matched or deleted files.")
+    parser.add_argument("-H", "--human-readable", action="store_true",
+                        help="Print sizes and ages in human-readable format.")
     parser.add_argument("--s3-bucket", help="S3 bucket name to back up the files.")
     parser.add_argument("--restore-from-s3", action="store_true", help="Restore files from S3.")
-    parser.add_argument("--backup-to-s3", action="store_true", help="Backup files to S3. If destroying files, they will be backed up before deletion.")
-    parser.add_argument("--pretend", action="store_true", help="Pretend to delete or move files. This is the default behavior if --destroy is not specified.")
+    parser.add_argument("--backup-to-s3", action="store_true",
+                        help="Backup files to S3. If destroying files, they will be backed up before deletion.")
+    parser.add_argument("--pretend", action="store_true",
+                        help="Pretend to delete or move files. This is the default behavior if --destroy is not specified.")
     parser.add_argument("-R", "--regex-pattern", help="Filter matches using a regex pattern.")
     parser.add_argument("-V", "--very-verbose", action="store_true",
                         help="Print very detailed information including each folder being checked.")
@@ -230,11 +255,16 @@ if __name__ == "__main__":
         match_msg = "\nFound {} files matching '{}'".format(files_matched, args.glob_pattern)
         if args.regex_pattern:
             match_msg += " and regex pattern '{}'".format(args.regex_pattern)
-        match_msg += " in {} directories with a total size of {}".format(directories_scanned, format_size(total_size_deleted, args.human_readable))
+        match_msg += " in {} directories with a total size of {}".format(directories_scanned,
+                                                                         format_size(total_size_deleted,
+                                                                                     args.human_readable))
         print(match_msg)
         if args.destroy:
-            print("Deleted {} files, total size: {}.".format(num_deleted_files, format_size(total_size_deleted, args.human_readable)))
+            print("Deleted {} files, total size: {}.".format(num_deleted_files,
+                                                             format_size(total_size_deleted, args.human_readable)))
         elif args.verbose and files_matched > num_deleted_files:
-            print("Use --destroy to delete {} matched files, total size: {}.".format(files_matched - num_deleted_files, format_size(total_size_deleted, args.human_readable)))
+            print("Use --destroy to delete {} matched files, total size: {}.".format(files_matched - num_deleted_files,
+                                                                                     format_size(total_size_deleted,
+                                                                                                 args.human_readable)))
     elif args.restore_from_s3:
         restore_files_from_s3(args.s3_bucket, args.directory, args.directory)
