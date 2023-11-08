@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+# TODO: replace prefix with relative path
 # TODO: Refactor arguments into a class that can be used to validate arguments
 # TODO: Add standard linux help with -h and --help and section for each argument
 # TODO: Write tests for each method
@@ -14,8 +15,6 @@ import fnmatch
 import os
 import re
 import sys
-
-import boto3
 
 
 def parse_duration_string(duration_string):
@@ -45,6 +44,13 @@ def format_size(size_bytes, human_readable=True):
     else:
         return str(size_bytes) + ' B'
 
+def convert_to_bytes(size_string):
+    size_units = {'B': 1, 'K': 1024, 'M': 1024 * 1024, 'G': 1024 * 1024 * 1024, 'T': 1024 * 1024 * 1024 * 1024}
+    size_string = size_string.upper()
+    number, unit = int(size_string[:-1]), size_string[-1]
+    if unit not in size_units:
+        raise ValueError("Invalid size unit. Use B, K, M, G, or T.")
+    return number * size_units[unit]
 
 def format_seconds(seconds, human_readable=True):
     if human_readable:
@@ -181,7 +187,7 @@ def restore_files_from_s3(bucket_name, prefix, restore_folder):
         print(f"Restored file: {s3_key} to {local_file_path} with original LastModified: {original_last_modified}")
 
 
-def upload_to_s3(local_file_path, s3_bucket_name, s3_object_key, verbose=False):
+def upload_to_s3(local_file_path, bucket_name, s3_object_key, verbose=False):
     try:
         # Get the original LastModified timestamp of the local file
         original_last_modified_timestamp = os.path.getmtime(local_file_path)
@@ -194,42 +200,34 @@ def upload_to_s3(local_file_path, s3_bucket_name, s3_object_key, verbose=False):
         s3_client = boto3.client('s3')
 
         # Upload the file to S3 and set the original LastModified in user metadata
-        s3_client.upload_file(local_file_path, s3_bucket_name, s3_object_key,
+        s3_client.upload_file(local_file_path, bucket_name, s3_object_key,
                               ExtraArgs={'Metadata': {'last-modified': original_last_modified}})
 
         # Set the user metadata for the uploaded object
-        s3_client.put_object(Bucket=s3_bucket_name, Key=s3_object_key,
+        s3_client.put_object(Bucket=bucket_name, Key=s3_object_key,
                              Metadata={'last-modified': original_last_modified})
 
         if verbose:
             msg = "Uploaded '{}' to S3 bucket '{}' with key '{}' and original LastModified: {}"
-            print(msg.format(local_file_path, s3_bucket_name, s3_object_key, original_last_modified))
+            print(msg.format(local_file_path, bucket_name, s3_object_key, original_last_modified))
 
     except Exception as e:
         print("Error uploading '{}' to S3: {}".format(local_file_path, str(e)))
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Delete files older than a specified duration in the given directory matching a glob pattern.")
+    parser = argparse.ArgumentParser(description="Delete files older than a specified duration in the given directory matching a glob pattern.")
     parser.add_argument("directory", help="Path to the directory to search for files.")
     parser.add_argument("glob_pattern", help="Glob pattern to match files (e.g., '*.txt').")
-    parser.add_argument("cutoff_duration",
-                        help="Time duration string specifying the cutoff date (e.g., '1Y3M' for 1 year and 3 months).")
-    parser.add_argument("-r", "--recursive", action="store_true",
-                        help="Recursively search for files in sub-directories.")
-    parser.add_argument("--destroy", action="store_true",
-                        help="Actually delete files. Without this flag, it will only pretend to delete.")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Print detailed information about matched or deleted files.")
-    parser.add_argument("-H", "--human-readable", action="store_true",
-                        help="Print sizes and ages in human-readable format.")
+    parser.add_argument("cutoff_duration", help="Time duration string specifying the cutoff date (e.g., '1Y3M' for 1 year and 3 months).")
+    parser.add_argument("-r", "--recursive", action="store_true", help="Recursively search for files in sub-directories.")
+    parser.add_argument("--destroy", action="store_true", help="Actually delete files. Without this flag, it will only pretend to delete.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Print detailed information about matched or deleted files.")
+    parser.add_argument("-H", "--human-readable", action="store_true", help="Print sizes and ages in human-readable format.")
     parser.add_argument("--s3-bucket", help="S3 bucket name to back up the files.")
     parser.add_argument("--restore-from-s3", action="store_true", help="Restore files from S3.")
-    parser.add_argument("--backup-to-s3", action="store_true",
-                        help="Backup files to S3. If destroying files, they will be backed up before deletion.")
-    parser.add_argument("--pretend", action="store_true",
-                        help="Pretend to delete or move files. This is the default behavior if --destroy is not specified.")
+    parser.add_argument("--backup", action="store_true", help="Backup files to S3. If destroying files, they will be backed up before deletion.")
+    parser.add_argument("--pretend", action="store_true", help="Pretend to delete or move files. This is the default behavior if --destroy is not specified.")
     parser.add_argument("-R", "--regex-pattern", help="Filter matches using a regex pattern.")
     parser.add_argument("-V", "--very-verbose", action="store_true",
                         help="Print very detailed information including each folder being checked.")
@@ -242,9 +240,10 @@ if __name__ == "__main__":
         if answer.lower() == 'n':
             print("Aborting...")
             exit()
-    if args.restore_from_s3 or args.backup_to_s3:
+    if args.restore_from_s3 or args.backup:
         # import here so user doesn't need boto3 installed if they don't use S3
-        if not args.s3_bucket:
+        import boto3
+        if not args.bucket_name:
             raise ValueError("Error: S3 bucket name is required for restoration. Use the '--s3-bucket' argument.")
     if not os.path.exists(args.directory):
         raise ValueError("Error: The directory '{}' does not exist.".format(args.directory))
@@ -255,16 +254,11 @@ if __name__ == "__main__":
         match_msg = "\nFound {} files matching '{}'".format(files_matched, args.glob_pattern)
         if args.regex_pattern:
             match_msg += " and regex pattern '{}'".format(args.regex_pattern)
-        match_msg += " in {} directories with a total size of {}".format(directories_scanned,
-                                                                         format_size(total_size_deleted,
-                                                                                     args.human_readable))
+        match_msg += " in {} directories with a total size of {}".format(directories_scanned, format_size(total_size_deleted, args.human_readable))
         print(match_msg)
         if args.destroy:
-            print("Deleted {} files, total size: {}.".format(num_deleted_files,
-                                                             format_size(total_size_deleted, args.human_readable)))
+            print("Deleted {} files, total size: {}.".format(num_deleted_files, format_size(total_size_deleted, args.human_readable)))
         elif args.verbose and files_matched > num_deleted_files:
-            print("Use --destroy to delete {} matched files, total size: {}.".format(files_matched - num_deleted_files,
-                                                                                     format_size(total_size_deleted,
-                                                                                                 args.human_readable)))
+            print("Use --destroy to delete {} matched files, total size: {}.".format(files_matched - num_deleted_files, format_size(total_size_deleted, args.human_readable)))
     elif args.restore_from_s3:
-        restore_files_from_s3(args.s3_bucket, args.directory, args.directory)
+        restore_files_from_s3(args.bucket_name, args.directory, args.directory)
